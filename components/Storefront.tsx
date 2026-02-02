@@ -16,9 +16,9 @@ interface StorefrontProps {
   onNavigate: (view: ViewType) => void;
 }
 
-const Storefront: React.FC<StorefrontProps> = ({ 
-  categories, products, onAddToCart, wishlist, onToggleWishlist, 
-  searchQuery, onSearchChange, forcedCategory, onNavigate 
+const Storefront: React.FC<StorefrontProps> = ({
+  categories, products, onAddToCart, wishlist, onToggleWishlist,
+  searchQuery, onSearchChange, forcedCategory, onNavigate
 }) => {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null);
@@ -30,17 +30,18 @@ const Storefront: React.FC<StorefrontProps> = ({
   const [isAskingAi, setIsAskingAi] = useState(false);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
 
-  // Sync internal category filter with external prop (page changes)
+  // Sync internal category filter with external prop (page changes) and normalize
   useEffect(() => {
-    setFilterCategory(forcedCategory);
+    setFilterCategory(typeof forcedCategory === 'string' ? forcedCategory.toLowerCase().trim() : forcedCategory);
   }, [forcedCategory]);
 
   const filteredProducts = useMemo<Product[]>(() => {
     let result = products.filter(p => {
-      const matchesCat = filterCategory === 'all' || p.categoryId === filterCategory;
-      const matchesSearch = searchQuery === '' || 
-                           p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                           p.brand.toLowerCase().includes(searchQuery.toLowerCase());
+      const prodCat = p.categoryId ? String(p.categoryId).toLowerCase().trim() : '';
+      const matchesCat = filterCategory === 'all' || prodCat === filterCategory;
+      const matchesSearch = searchQuery === '' ||
+        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.brand.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesPrice = (p.discountPrice || p.price) <= priceRange;
       return matchesCat && matchesSearch && matchesPrice;
     });
@@ -78,7 +79,7 @@ const Storefront: React.FC<StorefrontProps> = ({
 
   const getPageInfo = () => {
     const activeCat = categories.find(c => c.id === filterCategory);
-    
+
     if (filterCategory === 'men') {
       return {
         title: "Men's Collection",
@@ -98,11 +99,11 @@ const Storefront: React.FC<StorefrontProps> = ({
         hero: "https://images.unsplash.com/photo-1514989940723-e8e51635b782?auto=format&fit=crop&q=80&w=1600"
       };
     } else if (activeCat) {
-       return {
-          title: `${activeCat.name} Collection`,
-          subtitle: "Explore our latest curation",
-          hero: "https://images.unsplash.com/photo-1512374382149-4332c6c75d61?auto=format&fit=crop&q=80&w=1600"
-       };
+      return {
+        title: `${activeCat.name} Collection`,
+        subtitle: "Explore our latest curation",
+        hero: "https://images.unsplash.com/photo-1512374382149-4332c6c75d61?auto=format&fit=crop&q=80&w=1600"
+      };
     } else {
       return {
         title: "Apex Seasonal Drop",
@@ -118,15 +119,15 @@ const Storefront: React.FC<StorefrontProps> = ({
     <div className="container mx-auto px-4 py-6 sm:py-8">
       {/* Dynamic Hero Section */}
       <div className="relative rounded-2xl sm:rounded-[2rem] overflow-hidden mb-8 sm:mb-16 h-[300px] sm:h-[550px] bg-gray-900 group shadow-xl">
-        <img 
-          src={info.hero} 
+        <img
+          src={info.hero}
           className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-1000"
           alt="Hero"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-6 sm:p-12 text-white">
           <span className="text-red-600 font-black tracking-[0.2em] sm:tracking-[0.4em] text-[8px] sm:text-[10px] mb-2 sm:mb-4 uppercase">Premium Series 2024</span>
           <h2 className="text-3xl sm:text-8xl font-black mb-4 sm:mb-8 uppercase tracking-tighter leading-none">
-            {info.title.split(' ')[0]} <br/>
+            {info.title.split(' ')[0]} <br />
             <span className="text-red-600">{info.title.split(' ').slice(1).join(' ') || 'Edition'}</span>
           </h2>
           <p className="text-sm sm:text-lg font-bold text-gray-300 mb-6 sm:mb-10 tracking-wide uppercase italic hidden sm:block">{info.subtitle}</p>
@@ -143,7 +144,7 @@ const Storefront: React.FC<StorefrontProps> = ({
       {filterCategory === 'all' && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-8 mb-12 sm:mb-20">
           {categories.slice(0, 3).map((item) => (
-            <div 
+            <div
               key={item.id}
               onClick={() => onNavigate(item.id)}
               className="group relative h-48 sm:h-80 rounded-2xl sm:rounded-3xl overflow-hidden cursor-pointer shadow-lg active:scale-95 transition-all"
@@ -160,40 +161,40 @@ const Storefront: React.FC<StorefrontProps> = ({
 
       {/* AI Assistant Section */}
       <div className="bg-white border-2 border-red-50 shadow-lg rounded-2xl sm:rounded-3xl p-6 sm:p-10 mb-8 sm:mb-16 flex flex-col lg:flex-row items-center gap-6 sm:gap-8 relative overflow-hidden group">
-         <div className="bg-red-600 text-white p-4 sm:p-6 rounded-2xl shadow-xl flex-shrink-0">
-            <svg className="w-8 h-8 sm:w-10 sm:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+        <div className="bg-red-600 text-white p-4 sm:p-6 rounded-2xl shadow-xl flex-shrink-0">
+          <svg className="w-8 h-8 sm:w-10 sm:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+        </div>
+        <div className="flex-1 text-center lg:text-left">
+          <h3 className="text-xl sm:text-3xl font-black uppercase tracking-tighter text-gray-900 mb-1 leading-none">AI Shopping Consultant</h3>
+          <p className="text-[10px] sm:text-sm text-gray-500 font-bold uppercase tracking-widest opacity-60 italic">Find your match via reasoning.</p>
+        </div>
+        <div className="flex flex-col sm:flex-row w-full lg:w-auto gap-3">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="Ask: 'Red party shoes'..."
+            className="flex-1 lg:w-80 bg-gray-50 border-2 border-gray-100 rounded-2xl px-5 py-3 sm:py-4 outline-none focus:border-red-600 transition-all font-bold text-sm"
+          />
+          <button
+            onClick={handleAskAi}
+            disabled={isAskingAi}
+            className="bg-black text-white font-black px-8 py-3 sm:py-4 rounded-2xl hover:bg-red-600 transition-all shadow-xl disabled:opacity-50 text-xs sm:text-sm uppercase tracking-widest active:scale-95"
+          >
+            {isAskingAi ? 'Wait...' : 'Ask AI'}
+          </button>
+        </div>
+        {aiAdvice && (
+          <div className="absolute inset-0 bg-red-600 text-white p-6 sm:p-8 animate-in fade-in flex items-center justify-between text-xs sm:text-base">
+            <p className="text-sm sm:text-lg font-black italic pr-4">"{aiAdvice}"</p>
+            <button onClick={() => setAiAdvice('')} className="bg-white text-black px-4 sm:px-6 py-1 sm:py-2 rounded-full font-black text-[10px] sm:text-xs flex-shrink-0">Dismiss</button>
           </div>
-          <div className="flex-1 text-center lg:text-left">
-            <h3 className="text-xl sm:text-3xl font-black uppercase tracking-tighter text-gray-900 mb-1 leading-none">AI Shopping Consultant</h3>
-            <p className="text-[10px] sm:text-sm text-gray-500 font-bold uppercase tracking-widest opacity-60 italic">Find your match via reasoning.</p>
-          </div>
-          <div className="flex flex-col sm:flex-row w-full lg:w-auto gap-3">
-            <input 
-              type="text" 
-              value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="Ask: 'Red party shoes'..."
-              className="flex-1 lg:w-80 bg-gray-50 border-2 border-gray-100 rounded-2xl px-5 py-3 sm:py-4 outline-none focus:border-red-600 transition-all font-bold text-sm"
-            />
-            <button 
-              onClick={handleAskAi}
-              disabled={isAskingAi}
-              className="bg-black text-white font-black px-8 py-3 sm:py-4 rounded-2xl hover:bg-red-600 transition-all shadow-xl disabled:opacity-50 text-xs sm:text-sm uppercase tracking-widest active:scale-95"
-            >
-              {isAskingAi ? 'Wait...' : 'Ask AI'}
-            </button>
-          </div>
-          {aiAdvice && (
-            <div className="absolute inset-0 bg-red-600 text-white p-6 sm:p-8 animate-in fade-in flex items-center justify-between text-xs sm:text-base">
-              <p className="text-sm sm:text-lg font-black italic pr-4">"{aiAdvice}"</p>
-              <button onClick={() => setAiAdvice('')} className="bg-white text-black px-4 sm:px-6 py-1 sm:py-2 rounded-full font-black text-[10px] sm:text-xs flex-shrink-0">Dismiss</button>
-            </div>
-          )}
+        )}
       </div>
 
       <div className="flex flex-col lg:flex-row gap-8 lg:gap-12" id="catalog">
         {/* Mobile Filter Toggle */}
-        <button 
+        <button
           onClick={() => setShowMobileFilters(!showMobileFilters)}
           className="lg:hidden w-full flex items-center justify-center gap-2 bg-white border-2 border-gray-100 p-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-sm active:bg-gray-50"
         >
@@ -203,12 +204,12 @@ const Storefront: React.FC<StorefrontProps> = ({
 
         <aside className={`${showMobileFilters ? 'block' : 'hidden'} lg:block w-full lg:w-72 space-y-8 sm:space-y-12 animate-in slide-in-from-top-4 lg:animate-none`}>
           {filterCategory === 'all' && (
-             <div>
+            <div>
               <h4 className="font-black text-[10px] uppercase tracking-[0.3em] mb-4 sm:mb-6 text-gray-400">Department</h4>
               <div className="grid grid-cols-2 lg:flex lg:flex-col gap-2 sm:gap-3">
                 {categories.map(cat => (
-                  <button 
-                    key={cat.id} 
+                  <button
+                    key={cat.id}
                     onClick={() => setFilterCategory(cat.id)}
                     className={`flex items-center justify-center lg:justify-between w-full text-center lg:text-left py-2 sm:py-3 px-2 sm:px-4 rounded-xl transition-all text-[9px] sm:text-[10px] font-black uppercase tracking-widest ${filterCategory === cat.id ? 'bg-black text-white' : 'bg-gray-50 lg:bg-transparent text-gray-500 hover:bg-gray-100'}`}
                   >
@@ -222,10 +223,10 @@ const Storefront: React.FC<StorefrontProps> = ({
           <div>
             <h4 className="font-black text-[10px] uppercase tracking-[0.3em] mb-6 text-gray-400">Budget: {priceRange} BDT</h4>
             <div className="space-y-4">
-              <input 
+              <input
                 type="range" min="0" max="10000" step="500" value={priceRange}
                 onChange={(e) => setPriceRange(Number(e.target.value))}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-red-600" 
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-red-600"
               />
               <div className="flex justify-between text-[9px] font-black text-gray-400 uppercase">
                 <span>0 BDT</span>
@@ -234,7 +235,7 @@ const Storefront: React.FC<StorefrontProps> = ({
             </div>
           </div>
 
-          <button 
+          <button
             onClick={() => { setFilterCategory(forcedCategory); setPriceRange(10000); setShowMobileFilters(false); }}
             className="w-full py-3 sm:py-4 text-[10px] font-black uppercase tracking-widest text-red-600 border-2 border-red-600 rounded-2xl hover:bg-red-600 hover:text-white transition-all shadow-lg active:scale-95"
           >
@@ -246,7 +247,7 @@ const Storefront: React.FC<StorefrontProps> = ({
           <div className="flex justify-between items-center mb-6 sm:mb-10 pb-4 sm:pb-6 border-b border-gray-100">
             <h3 className="text-xl sm:text-2xl font-black uppercase tracking-tighter text-gray-900">{filterCategory === 'all' ? 'Featured' : (categories.find(c => c.id === filterCategory)?.name || 'Items')}</h3>
             <div className="flex items-center gap-2">
-              <select 
+              <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
                 className="bg-transparent font-black text-[10px] sm:text-xs uppercase tracking-widest outline-none border-b-2 border-black py-1"
@@ -260,15 +261,15 @@ const Storefront: React.FC<StorefrontProps> = ({
 
           <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-10">
             {filteredProducts.map(p => (
-              <div 
-                key={p.id} 
+              <div
+                key={p.id}
                 className="group flex flex-col h-full bg-white rounded-2xl sm:rounded-[2rem] overflow-hidden border border-gray-50 hover:border-gray-100 hover:shadow-xl transition-all duration-300 cursor-pointer p-1 sm:p-0"
                 onClick={() => openProduct(p)}
               >
                 <div className="relative aspect-square overflow-hidden bg-gray-50 sm:rounded-none rounded-xl">
                   <img src={p.images[0]} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
                   <div className="absolute top-2 right-2 sm:top-4 sm:right-4">
-                    <button 
+                    <button
                       onClick={(e) => { e.stopPropagation(); onToggleWishlist(p.id); }}
                       className={`p-2 sm:p-3 rounded-full transition-all active:scale-90 ${wishlist.includes(p.id) ? 'bg-red-600 text-white' : 'bg-white/80 text-black'}`}
                     >
@@ -297,7 +298,7 @@ const Storefront: React.FC<StorefrontProps> = ({
       {selectedProduct && (
         <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-2 sm:p-4 backdrop-blur-md transition-all animate-in fade-in">
           <div className="bg-white w-full max-w-6xl rounded-2xl sm:rounded-[3rem] overflow-hidden flex flex-col lg:flex-row relative shadow-2xl h-[90vh] lg:h-auto max-h-[90vh]">
-            <button 
+            <button
               onClick={() => setSelectedProduct(null)}
               className="absolute top-4 right-4 sm:top-8 sm:right-8 z-30 bg-gray-100/50 backdrop-blur hover:bg-black text-black hover:text-white p-2 sm:p-3 rounded-full transition-all active:scale-90"
             >
@@ -313,8 +314,8 @@ const Storefront: React.FC<StorefrontProps> = ({
                 {selectedProduct.images.length > 1 && (
                   <div className="flex gap-2 mt-4 overflow-x-auto w-full justify-center pb-2">
                     {selectedProduct.images.map((img, i) => (
-                      <button 
-                        key={i} 
+                      <button
+                        key={i}
                         onClick={() => setActiveImage(img)}
                         className={`w-12 h-12 sm:w-16 sm:h-16 rounded-lg border-2 flex-shrink-0 overflow-hidden transition-all ${activeImage === img ? 'border-red-600' : 'border-transparent opacity-60 hover:opacity-100'}`}
                       >
@@ -335,8 +336,8 @@ const Storefront: React.FC<StorefrontProps> = ({
                 <h4 className="font-black text-[9px] sm:text-[10px] uppercase mb-2 sm:mb-4 text-gray-400 tracking-widest">Select Size</h4>
                 <div className="flex flex-wrap gap-2 sm:gap-3">
                   {selectedProduct.variants.map(v => (
-                    <button 
-                      key={v.id} 
+                    <button
+                      key={v.id}
                       onClick={() => setSelectedVariant(v)}
                       className={`w-10 h-10 sm:w-14 sm:h-14 rounded-lg sm:rounded-2xl border-2 font-black transition-all text-xs sm:text-base ${selectedVariant?.id === v.id ? 'bg-black border-black text-white scale-110 shadow-xl' : 'border-gray-100 hover:border-black'}`}
                     >
@@ -354,7 +355,7 @@ const Storefront: React.FC<StorefrontProps> = ({
                 </p>
               </div>
 
-              <button 
+              <button
                 onClick={() => {
                   if (selectedVariant) {
                     onAddToCart({ ...selectedProduct, selectedVariant, quantity: 1 });

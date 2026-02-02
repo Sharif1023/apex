@@ -30,6 +30,42 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ products, setProducts, categori
   const [isAddingProduct, setIsAddingProduct] = useState(false);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
 
+  // API helpers
+  const API_BASE = 'http://localhost:5000/api';
+
+  const fetchCategoriesFromServer = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/categories`);
+      if (!res.ok) throw new Error('Failed to fetch categories');
+      const data = await res.json();
+      setCategories(data);
+    } catch (err) {
+      console.error('Error fetching categories:', err);
+    }
+  };
+
+  const fetchProductsFromServer = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/products`);
+      if (!res.ok) throw new Error('Failed to fetch products');
+      const data = await res.json();
+      setProducts(data.map((p: any) => ({ ...p, categoryId: p.categoryId ? String(p.categoryId).toLowerCase().trim() : p.categoryId })));
+    } catch (err) {
+      console.error('Error fetching products:', err);
+    }
+  };
+
+  const fetchOrdersFromServer = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/orders`);
+      if (!res.ok) throw new Error('Failed to fetch orders');
+      const data = await res.json();
+      setOrders(data || []);
+    } catch (err) {
+      console.error('Error fetching orders:', err);
+    }
+  };
+
   const deleteProduct = (id: string) => {
     if (confirm("Permanently delete this style from catalog?")) {
       setProducts(prev => prev.filter(p => p.id !== id));
@@ -42,12 +78,27 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ products, setProducts, categori
     }
   };
 
-  const updateOrderStatus = (orderId: string, status: OrderStatus) => {
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
-    setManagingOrder(null);
+  const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
+    try {
+      const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      if (!res.ok) throw new Error('Failed to update order status');
+      // Refresh orders from server to ensure canonical state
+      await fetchOrdersFromServer();
+    } catch (err) {
+      console.error('Error updating order status:', err);
+      // Fallback to client-side update so UI reflects change
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
+      alert('Failed to persist status change. Check server logs.');
+    } finally {
+      setManagingOrder(null);
+    }
   };
 
-  const handleProductSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleProductSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const images = [
@@ -59,14 +110,19 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ products, setProducts, categori
 
     if (images.length === 0) images.push('https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=600');
 
+    const id = editingProduct?.id || Math.random().toString(36).substr(2, 9);
+
+    const rawCategory = (formData.get('category') as string) || '';
+    const normalizedCategory = rawCategory.toLowerCase().trim();
+
     const newProd: Product = {
-      id: editingProduct?.id || Math.random().toString(36).substr(2, 9),
+      id,
       name: formData.get('name') as string,
-      brand: formData.get('brand') as string,
+      brand: (formData.get('brand') as string) || '',
       price: Number(formData.get('price')),
-      categoryId: formData.get('category') as string,
+      categoryId: normalizedCategory,
       subcategoryId: 'dynamic',
-      description: formData.get('description') as string,
+      description: (formData.get('description') as string) || '',
       rating: editingProduct?.rating || 4.5,
       reviewsCount: editingProduct?.reviewsCount || 1,
       images: images,
@@ -77,15 +133,46 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ products, setProducts, categori
     };
 
     if (editingProduct) {
+      // Editing is currently applied client-side only (no update endpoint yet)
       setProducts(prev => prev.map(p => p.id === editingProduct.id ? newProd : p));
-    } else {
-      setProducts(prev => [newProd, ...prev]);
+      setEditingProduct(null);
+      setIsAddingProduct(false);
+      return;
     }
-    setEditingProduct(null);
-    setIsAddingProduct(false);
+
+    // Validate selected category exists locally before attempting to persist
+    const catExists = categories.some(c => String(c.id).toLowerCase().trim() === normalizedCategory);
+    if (!catExists) {
+      alert('Selected category does not exist. Please create the category first.');
+      return;
+    }
+
+    // Creating new product -> persist to server
+    try {
+      const res = await fetch(`${API_BASE}/products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: newProd.id, name: newProd.name, price: newProd.price, brand: newProd.brand, categoryId: normalizedCategory, description: newProd.description, images: newProd.images })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'unknown' }));
+        throw new Error(err.error || 'Failed to save product');
+      }
+
+      // Refresh products from server to ensure canonical state
+      await fetchProductsFromServer();
+    } catch (err) {
+      console.error('Error saving product to server:', err);
+      // Fallback to local update so the user sees the item immediately (ensure normalized category)
+      setProducts(prev => [{ ...newProd, categoryId: normalizedCategory }, ...prev]);
+      alert('Product saved locally. Server save failed. Check console for details.');
+    } finally {
+      setEditingProduct(null);
+      setIsAddingProduct(false);
+    }
   };
 
-  const handleCategorySubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleCategorySubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const name = formData.get('name') as string;
@@ -98,12 +185,34 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ products, setProducts, categori
     };
 
     if (editingCategory) {
+      // Editing categories currently is a client-side update (no PUT endpoint yet)
       setCategories(prev => prev.map(c => c.id === editingCategory.id ? newCat : c));
-    } else {
-      setCategories(prev => [...prev, newCat]);
+      setEditingCategory(null);
+      setIsAddingCategory(false);
+      return;
     }
-    setEditingCategory(null);
-    setIsAddingCategory(false);
+
+    // Creating new category -> persist
+    try {
+      const res = await fetch(`${API_BASE}/categories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: newCat.id, name: newCat.name })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'unknown' }));
+        throw new Error(err.error || 'Failed to save category');
+      }
+
+      await fetchCategoriesFromServer();
+    } catch (err) {
+      console.error('Error saving category to server:', err);
+      setCategories(prev => [...prev, newCat]);
+      alert('Category saved locally. Server save failed. Check console for details.');
+    } finally {
+      setEditingCategory(null);
+      setIsAddingCategory(false);
+    }
   };
 
   return (
@@ -111,10 +220,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ products, setProducts, categori
       {/* Sidebar - Desktop Only */}
       <aside className="w-72 bg-gray-900 text-white hidden lg:block border-r border-gray-800">
         <div className="p-10 border-b border-gray-800">
-           <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3">
             <div className="w-3 h-3 bg-red-600 rounded-full shadow-[0_0_15px_rgba(239,68,68,0.5)]"></div>
             <h1 className="text-xl font-black uppercase tracking-tighter">Admin Core</h1>
-           </div>
+          </div>
         </div>
         <nav className="mt-10 px-6 space-y-2">
           <button onClick={() => setActiveTab('dash')} className={`w-full text-left px-6 py-4 rounded-2xl flex items-center gap-4 transition-all uppercase text-[10px] font-black tracking-widest ${activeTab === 'dash' ? 'bg-red-600' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}>Performance</button>
@@ -136,7 +245,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ products, setProducts, categori
         {activeTab === 'dash' && (
           <div className="space-y-8 sm:space-y-12 animate-in fade-in duration-700">
             <h2 className="text-2xl sm:text-4xl font-black uppercase tracking-tighter text-gray-900">Retail Overview</h2>
-            
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-8">
               {[
                 { label: 'Revenue', value: 'BDT 450,230', color: 'border-red-600' },
@@ -150,14 +259,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ products, setProducts, categori
               ))}
             </div>
             {/* ... charts from previous version ... */}
-             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-10">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-10">
               <div className="bg-white p-6 sm:p-10 rounded-[2rem] sm:rounded-[3rem] shadow-sm border h-80 sm:h-96">
                 <h3 className="font-black uppercase text-[10px] mb-6 sm:mb-10 text-gray-400 tracking-widest">Revenue Flow</h3>
                 <ResponsiveContainer width="100%" height="80%">
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10}} />
-                    <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10}} />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
                     <Tooltip contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 40px rgba(0,0,0,0.1)' }} />
                     <Line type="monotone" dataKey="revenue" stroke="#ef4444" strokeWidth={5} dot={{ r: 4, fill: '#ef4444', strokeWidth: 2, stroke: '#fff' }} />
                   </LineChart>
@@ -168,8 +277,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ products, setProducts, categori
                 <ResponsiveContainer width="100%" height="80%">
                   <BarChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10}} />
-                    <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10}} />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
                     <Tooltip contentStyle={{ borderRadius: '20px' }} />
                     <Bar dataKey="revenue" fill="#111827" radius={[10, 10, 0, 0]} />
                   </BarChart>
@@ -186,90 +295,90 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ products, setProducts, categori
               <button onClick={() => setIsAddingProduct(true)} className="w-full sm:w-auto bg-red-600 text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg">Add Product</button>
             </div>
             <div className="bg-white rounded-2xl border overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left min-w-[600px]">
-                    <thead className="bg-gray-50 border-b font-black uppercase text-[9px] tracking-widest text-gray-400">
-                        <tr><th className="px-8 py-6">Article</th><th className="px-8 py-6">Category</th><th className="px-8 py-6">Price</th><th className="px-8 py-6 text-right">Actions</th></tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                        {products.map(p => (
-                        <tr key={p.id} className="hover:bg-gray-50/50">
-                            <td className="px-8 py-6 flex items-center gap-4">
-                                <img src={p.images[0]} className="w-12 h-12 rounded-xl object-cover" />
-                                <span className="font-black uppercase text-xs">{p.name}</span>
-                            </td>
-                            <td className="px-8 py-6 text-xs font-black text-gray-400 uppercase">{categories.find(c => c.id === p.categoryId)?.name || p.categoryId}</td>
-                            <td className="px-8 py-6 font-black">{p.price} BDT</td>
-                            <td className="px-8 py-6 text-right space-x-4">
-                                <button onClick={() => setEditingProduct(p)} className="text-blue-600 text-[10px] font-black uppercase">Edit</button>
-                                <button onClick={() => deleteProduct(p.id)} className="text-red-600 text-[10px] font-black uppercase">Delete</button>
-                            </td>
-                        </tr>
-                        ))}
-                    </tbody>
-                    </table>
-                </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left min-w-[600px]">
+                  <thead className="bg-gray-50 border-b font-black uppercase text-[9px] tracking-widest text-gray-400">
+                    <tr><th className="px-8 py-6">Article</th><th className="px-8 py-6">Category</th><th className="px-8 py-6">Price</th><th className="px-8 py-6 text-right">Actions</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {products.map(p => (
+                      <tr key={p.id} className="hover:bg-gray-50/50">
+                        <td className="px-8 py-6 flex items-center gap-4">
+                          <img src={p.images[0]} className="w-12 h-12 rounded-xl object-cover" />
+                          <span className="font-black uppercase text-xs">{p.name}</span>
+                        </td>
+                        <td className="px-8 py-6 text-xs font-black text-gray-400 uppercase">{categories.find(c => c.id === p.categoryId)?.name || p.categoryId}</td>
+                        <td className="px-8 py-6 font-black">{p.price} BDT</td>
+                        <td className="px-8 py-6 text-right space-x-4">
+                          <button onClick={() => setEditingProduct(p)} className="text-blue-600 text-[10px] font-black uppercase">Edit</button>
+                          <button onClick={() => deleteProduct(p.id)} className="text-red-600 text-[10px] font-black uppercase">Delete</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
 
         {activeTab === 'categories' && (
-           <div className="space-y-6 sm:space-y-10 animate-in slide-in-from-bottom-8 duration-700">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
-                <h2 className="text-2xl sm:text-4xl font-black uppercase tracking-tighter text-gray-900 leading-none">Departments</h2>
-                <button onClick={() => setIsAddingCategory(true)} className="w-full sm:w-auto bg-black text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg">Create Category</button>
-              </div>
-              <div className="bg-white rounded-2xl border overflow-hidden">
-                 <table className="w-full text-left">
-                    <thead className="bg-gray-50 border-b font-black uppercase text-[9px] tracking-widest text-gray-400">
-                       <tr><th className="px-8 py-6">Name</th><th className="px-8 py-6">System ID</th><th className="px-8 py-6 text-right">Actions</th></tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                       {categories.map(cat => (
-                          <tr key={cat.id} className="hover:bg-gray-50">
-                             <td className="px-8 py-6 font-black uppercase text-xs">{cat.name}</td>
-                             <td className="px-8 py-6 text-[10px] font-mono text-gray-400">{cat.id}</td>
-                             <td className="px-8 py-6 text-right space-x-4">
-                                <button onClick={() => setEditingCategory(cat)} className="text-blue-600 text-[10px] font-black uppercase">Edit</button>
-                                <button onClick={() => deleteCategory(cat.id)} className="text-red-600 text-[10px] font-black uppercase">Delete</button>
-                             </td>
-                          </tr>
-                       ))}
-                    </tbody>
-                 </table>
-              </div>
-           </div>
+          <div className="space-y-6 sm:space-y-10 animate-in slide-in-from-bottom-8 duration-700">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+              <h2 className="text-2xl sm:text-4xl font-black uppercase tracking-tighter text-gray-900 leading-none">Departments</h2>
+              <button onClick={() => setIsAddingCategory(true)} className="w-full sm:w-auto bg-black text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg">Create Category</button>
+            </div>
+            <div className="bg-white rounded-2xl border overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-gray-50 border-b font-black uppercase text-[9px] tracking-widest text-gray-400">
+                  <tr><th className="px-8 py-6">Name</th><th className="px-8 py-6">System ID</th><th className="px-8 py-6 text-right">Actions</th></tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {categories.map(cat => (
+                    <tr key={cat.id} className="hover:bg-gray-50">
+                      <td className="px-8 py-6 font-black uppercase text-xs">{cat.name}</td>
+                      <td className="px-8 py-6 text-[10px] font-mono text-gray-400">{cat.id}</td>
+                      <td className="px-8 py-6 text-right space-x-4">
+                        <button onClick={() => setEditingCategory(cat)} className="text-blue-600 text-[10px] font-black uppercase">Edit</button>
+                        <button onClick={() => deleteCategory(cat.id)} className="text-red-600 text-[10px] font-black uppercase">Delete</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
 
         {activeTab === 'orders' && (
-           /* ... existing order management from previous version ... */
-           <div className="space-y-6 sm:space-y-10">
-             <h2 className="text-2xl sm:text-4xl font-black uppercase tracking-tighter text-gray-900 leading-none">Order Fulfillment</h2>
-             <div className="bg-white rounded-2xl border overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left min-w-[800px]">
-                    <thead className="bg-gray-50 border-b text-[9px] font-black uppercase tracking-widest text-gray-400">
-                        <tr><th className="px-8 py-6">ID</th><th className="px-8 py-6">Client</th><th className="px-8 py-6">Total</th><th className="px-8 py-6">Status</th><th className="px-8 py-6 text-right">Actions</th></tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                        {orders.map(order => (
-                        <tr key={order.id}>
-                            <td className="px-8 py-6 font-black text-red-600">{order.id}</td>
-                            <td className="px-8 py-6"><span className="font-black uppercase text-xs">{order.customerName}</span></td>
-                            <td className="px-8 py-6 font-black">{order.totalAmount} BDT</td>
-                            <td className="px-8 py-6">
-                                <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${order.status === OrderStatus.PENDING ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>{order.status}</span>
-                            </td>
-                            <td className="px-8 py-6 text-right">
-                                <button onClick={() => setManagingOrder(order)} className="bg-black text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase">Manage</button>
-                            </td>
-                        </tr>
-                        ))}
-                    </tbody>
-                    </table>
-                </div>
-             </div>
-           </div>
+          /* ... existing order management from previous version ... */
+          <div className="space-y-6 sm:space-y-10">
+            <h2 className="text-2xl sm:text-4xl font-black uppercase tracking-tighter text-gray-900 leading-none">Order Fulfillment</h2>
+            <div className="bg-white rounded-2xl border overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left min-w-[800px]">
+                  <thead className="bg-gray-50 border-b text-[9px] font-black uppercase tracking-widest text-gray-400">
+                    <tr><th className="px-8 py-6">ID</th><th className="px-8 py-6">Client</th><th className="px-8 py-6">Total</th><th className="px-8 py-6">Status</th><th className="px-8 py-6 text-right">Actions</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {orders.map(order => (
+                      <tr key={order.id}>
+                        <td className="px-8 py-6 font-black text-red-600">{order.id}</td>
+                        <td className="px-8 py-6"><span className="font-black uppercase text-xs">{order.customerName}</span></td>
+                        <td className="px-8 py-6 font-black">{order.totalAmount} BDT</td>
+                        <td className="px-8 py-6">
+                          <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${order.status === OrderStatus.PENDING ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>{order.status}</span>
+                        </td>
+                        <td className="px-8 py-6 text-right">
+                          <button onClick={() => setManagingOrder(order)} className="bg-black text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase">Manage</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         )}
       </main>
 
@@ -277,21 +386,21 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ products, setProducts, categori
       {(isAddingCategory || editingCategory) && (
         <div className="fixed inset-0 z-[200] bg-black/90 flex items-center justify-center p-4 backdrop-blur-md">
           <div className="bg-white w-full max-w-sm rounded-[2rem] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300">
-             <div className="p-8 bg-black text-white flex justify-between items-center">
-                <h3 className="font-black uppercase tracking-widest text-sm">{editingCategory ? 'Edit Category' : 'New Department'}</h3>
-                <button onClick={() => { setIsAddingCategory(false); setEditingCategory(null); }} className="text-gray-400 hover:text-white">
-                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
-                </button>
-             </div>
-             <form onSubmit={handleCategorySubmit} className="p-10 space-y-8">
-                <div>
-                   <label className="text-[9px] font-black uppercase text-gray-400 block mb-2 tracking-widest">Category Name</label>
-                   <input name="name" defaultValue={editingCategory?.name} required placeholder="Ex: Summer Collection" className="w-full border-2 border-gray-100 p-4 rounded-2xl text-sm font-bold outline-none focus:border-red-600 transition-colors" />
-                </div>
-                <button type="submit" className="w-full bg-red-600 text-white py-5 rounded-3xl font-black uppercase tracking-widest hover:bg-black transition-all shadow-xl active:scale-95 text-xs">
-                   {editingCategory ? 'Save Changes' : 'Launch Department'}
-                </button>
-             </form>
+            <div className="p-8 bg-black text-white flex justify-between items-center">
+              <h3 className="font-black uppercase tracking-widest text-sm">{editingCategory ? 'Edit Category' : 'New Department'}</h3>
+              <button onClick={() => { setIsAddingCategory(false); setEditingCategory(null); }} className="text-gray-400 hover:text-white">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+            <form onSubmit={handleCategorySubmit} className="p-10 space-y-8">
+              <div>
+                <label className="text-[9px] font-black uppercase text-gray-400 block mb-2 tracking-widest">Category Name</label>
+                <input name="name" defaultValue={editingCategory?.name} required placeholder="Ex: Summer Collection" className="w-full border-2 border-gray-100 p-4 rounded-2xl text-sm font-bold outline-none focus:border-red-600 transition-colors" />
+              </div>
+              <button type="submit" className="w-full bg-red-600 text-white py-5 rounded-3xl font-black uppercase tracking-widest hover:bg-black transition-all shadow-xl active:scale-95 text-xs">
+                {editingCategory ? 'Save Changes' : 'Launch Department'}
+              </button>
+            </form>
           </div>
         </div>
       )}
@@ -313,10 +422,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ products, setProducts, categori
                   <input name="name" defaultValue={editingProduct?.name} required className="w-full border-2 border-gray-100 p-3 sm:p-4 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-bold outline-none focus:border-red-600 transition-colors" />
                 </div>
                 <div>
-                   <label className="text-[9px] font-black uppercase text-gray-400 block mb-2 tracking-widest">Department (Page)</label>
-                   <select name="category" defaultValue={editingProduct?.categoryId || categories[0]?.id} className="w-full border-2 border-gray-100 p-3 sm:p-4 rounded-xl sm:rounded-2xl text-xs font-black outline-none uppercase focus:border-red-600 transition-colors">
+                  <label className="text-[9px] font-black uppercase text-gray-400 block mb-2 tracking-widest">Department (Page)</label>
+                  <select name="category" defaultValue={editingProduct?.categoryId || categories[0]?.id} className="w-full border-2 border-gray-100 p-3 sm:p-4 rounded-xl sm:rounded-2xl text-xs font-black outline-none uppercase focus:border-red-600 transition-colors">
                     {categories.map(cat => (
-                       <option key={cat.id} value={cat.id}>{cat.name}</option>
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
                     ))}
                   </select>
                 </div>
@@ -350,10 +459,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ products, setProducts, categori
           <div className="bg-white w-full max-w-sm rounded-[2rem] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300">
             <div className="p-6 bg-red-600 text-white font-black uppercase tracking-widest text-center text-xs">Update Status</div>
             <div className="p-8 space-y-4">
-               {[OrderStatus.PENDING, OrderStatus.PROCESSING, OrderStatus.SHIPPED, OrderStatus.DELIVERED, OrderStatus.CANCELLED].map(status => (
-                  <button key={status} onClick={() => updateOrderStatus(managingOrder.id, status)} className={`w-full py-3 rounded-xl text-[9px] font-black uppercase transition-all ${managingOrder.status === status ? 'bg-black text-white' : 'bg-gray-100 text-gray-400'}`}>{status}</button>
-               ))}
-               <button onClick={() => setManagingOrder(null)} className="w-full text-center text-[9px] font-black uppercase text-gray-400 pt-4">Cancel</button>
+              {[OrderStatus.PENDING, OrderStatus.PROCESSING, OrderStatus.SHIPPED, OrderStatus.DELIVERED, OrderStatus.CANCELLED].map(status => (
+                <button key={status} onClick={() => updateOrderStatus(managingOrder.id, status)} className={`w-full py-3 rounded-xl text-[9px] font-black uppercase transition-all ${managingOrder.status === status ? 'bg-black text-white' : 'bg-gray-100 text-gray-400'}`}>{status}</button>
+              ))}
+              <button onClick={() => setManagingOrder(null)} className="w-full text-center text-[9px] font-black uppercase text-gray-400 pt-4">Cancel</button>
             </div>
           </div>
         </div>
